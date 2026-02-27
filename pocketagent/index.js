@@ -6,6 +6,7 @@ import { whisperTranscribe, ttsToWav } from './openai.js';
 import { ReminderEngine, newId } from './reminders.js';
 import { handleUtterance } from './agent.js';
 import { loadJson, saveJson } from './store.js';
+import { answerReminderQuery, selectRemindersForQuery } from './query.js';
 
 const DATA_DIR = process.env.POCKETAGENT_DATA_DIR || './data';
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -181,6 +182,19 @@ async function oneTurn() {
     const latest = open[0];
     if (latest) engine.acknowledge(latest.id);
     await say(result.say);
+    return;
+  }
+
+  if (result.intent === 'query_reminders') {
+    const selected = selectRemindersForQuery(engine, result.queryText);
+    const answer = await answerReminderQuery({
+      baseUrl,
+      apiKeyEnv,
+      model: DEFAULTS.chatModel,
+      queryText: result.queryText,
+      reminders: selected
+    });
+    await say(answer);
     return;
   }
 

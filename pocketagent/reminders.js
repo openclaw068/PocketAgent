@@ -19,6 +19,24 @@ export class ReminderEngine {
     return this.state.reminders.filter(r => r.status === 'open');
   }
 
+  listAll() {
+    return [...this.state.reminders];
+  }
+
+  listByDateRange({ startIso, endIso, status = null }) {
+    const start = startIso ? new Date(startIso).getTime() : -Infinity;
+    const end = endIso ? new Date(endIso).getTime() : Infinity;
+    return this.state.reminders
+      .filter(r => {
+        const t = new Date(r.dueAtIso).getTime();
+        if (Number.isNaN(t)) return false;
+        if (t < start || t > end) return false;
+        if (status && r.status !== status) return false;
+        return true;
+      })
+      .sort((a,b) => new Date(a.dueAtIso) - new Date(b.dueAtIso));
+  }
+
   add(reminder) {
     const r = {
       id: reminder.id,

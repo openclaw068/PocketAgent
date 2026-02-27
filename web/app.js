@@ -31,10 +31,18 @@ async function health() {
   }
 }
 
+function getKey() {
+  return localStorage.getItem('pocketagent_access_key') || '';
+}
+
 async function turn(text) {
+  const key = getKey();
   const res = await fetch('/api/turn', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(key ? { 'x-access-key': key } : {})
+    },
     body: JSON.stringify({ text })
   });
   const j = await res.json();
@@ -57,5 +65,11 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
-add('assistant', "Say what you want to remember, and I’ll walk you through time + follow-ups.");
+// Access key prompt (very simple)
+if (!getKey()) {
+  const k = prompt('Enter PocketAgent access key:');
+  if (k) localStorage.setItem('pocketagent_access_key', k);
+}
+
+add('assistant', "Tell me what you want to remember, or ask what’s coming up today.");
 health();

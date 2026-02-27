@@ -123,7 +123,12 @@ export async function handleUtterance({ baseUrl, apiKeyEnv, model, text, state }
     return { intent: 'ack_latest', say: `Nice — I’ll mark that as done.`, state };
   }
 
-  // Basic reminder detection
+  // Reminder queries
+  if (/\b(what do i have|what's coming up|whats coming up|coming up today|today\b|tomorrow\b|yesterday\b|list reminders|my reminders)\b/i.test(t)) {
+    return { intent: 'query_reminders', queryText: t, say: `Let me check your reminders.`, state };
+  }
+
+  // Basic reminder creation
   if (/\b(remind me|i need to remember|don't let me forget|remember to)\b/i.test(t)) {
     return {
       intent: 'new_reminder',
@@ -132,16 +137,10 @@ export async function handleUtterance({ baseUrl, apiKeyEnv, model, text, state }
     };
   }
 
-  // Fallback chat
-  const content = await chat({
-    baseUrl,
-    apiKeyEnv,
-    model,
-    messages: [
-      { role: 'system', content: 'You are a helpful, conversational voice assistant running on a Raspberry Pi. Keep replies short (1-2 sentences) and natural.' },
-      { role: 'user', content: t }
-    ]
-  });
-
-  return { intent: 'chat', say: content, state };
+  // Guardrails: this agent only does reminders.
+  return {
+    intent: 'out_of_scope',
+    say: `I can help with reminders — set one, change your default follow-ups, or ask what’s coming up today.`,
+    state
+  };
 }

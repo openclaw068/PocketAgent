@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handleUtterance } from '../pocketagent/agent.js';
 import { loadJson, saveJson } from '../pocketagent/store.js';
+import { ReminderEngine, newId } from '../pocketagent/reminders.js';
+import { answerReminderQuery, selectRemindersForQuery } from '../pocketagent/query.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,6 +15,7 @@ const DATA_DIR = process.env.POCKETAGENT_DATA_DIR || path.join(__dirname, '..', 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const defaultsPath = process.env.POCKETAGENT_DEFAULTS_FILE || path.join(DATA_DIR, 'defaults.json');
+const remindersPath = process.env.POCKETAGENT_REMINDERS_DB || path.join(DATA_DIR, 'reminders.json');
 
 const state = {
   pending: null,
@@ -22,6 +25,41 @@ const state = {
   })
 };
 
+const engine = new ReminderEngine({ dbFile: remindersPath, timezone: state.defaults.timezone });
+engine.start(async () => {}); // web tester doesn't auto-speak
+
+function parseDueIso(timeText) {
+  const now = new Date();
+  const m = String(timeText || '').trim().match(/^(tomorrow\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+  if (!m) return new Date(Date.now() + 60_000).toISOString();
+  const isTomorrow = !!m[1];
+  let hh = Number(m[2]);
+  const mm = m[3] ? Number(m[3]) : 0;
+  const ap = m[4]?.toLowerCase();
+  if (ap === 'pm' && hh < 12) hh += 12;
+  if (ap === 'am' && hh === 12) hh = 0;
+  const due = new Date(now);
+  due.setSeconds(0, 0);
+  due.setHours(hh, mm, 0, 0);
+  if (isTomorrow || due <= now) due.setDate(due.getDate() + 1);
+  return due.toISOString();
+}
+
+function followupFromSpec(spec) {
+  const d = state.defaults.followup;
+  const dQuiet = d.quietHours ?? { start: 23, end: 7 };
+  if (!spec || spec.kind === 'use_default') {
+    if (d.mode === 'once') return { followupEveryMin: null };
+    return { followupEveryMin: d.everyMin ?? 15, followupMaxCount: d.maxCount ?? null, followupQuietHours: dQuiet };
+  }
+  if (spec.everyMin === null) return { followupEveryMin: null };
+  return {
+    followupEveryMin: Number(spec.everyMin ?? (d.everyMin ?? 15)),
+    followupMaxCount: spec.maxCount ?? null,
+    followupQuietHours: spec.quietHours ?? dQuiet
+  };
+}
+
 function send(res, status, headers, body) {
   res.writeHead(status, headers);
   res.end(body);
@@ -29,6 +67,13 @@ function send(res, status, headers, body) {
 
 function json(res, status, obj) {
   send(res, status, { 'Content-Type': 'application/json' }, JSON.stringify(obj));
+}
+
+function requireAccessKey(req) {
+  const expected = process.env.POCKETAGENT_WEB_ACCESS_KEY;
+  if (!expected) return true; // no auth configured
+  const got = req.headers['x-access-key'];
+  return typeof got === 'string' && got === expected;
 }
 
 function readBody(req) {
@@ -65,6 +110,8 @@ const server = http.createServer(async (req, res) => {
 
     // Chat turn
     if (req.method === 'POST' && req.url === '/api/turn') {
+      if (!requireAccessKey(req)) return json(res, 401, { ok: false, error: 'Unauthorized' });
+
       const raw = await readBody(req);
       const body = raw ? JSON.parse(raw) : {};
       const text = String(body.text || '');
@@ -83,14 +130,30 @@ const server = http.createServer(async (req, res) => {
         saveJson(defaultsPath, state.defaults);
       }
 
+      // If a full reminder was collected, store it (web tester only)
+      if (result.intent === 'set_followup' && state.collected) {
+        const dueAtIso = parseDueIso(state.collected.timeText);
+        const follow = followupFromSpec(state.collected.followupSpec);
+        engine.add({ id: newId(), text: state.collected.reminderText, dueAtIso, ...follow });
+        state.collected = null;
+      }
+
+      // Query reminders
+      let assistant = result.say || '';
+      if (result.intent === 'query_reminders') {
+        const selected = selectRemindersForQuery(engine, result.queryText);
+        assistant = await answerReminderQuery({ baseUrl, apiKeyEnv, model, queryText: result.queryText, reminders: selected });
+      }
+
       return json(res, 200, {
         ok: true,
         user: text,
-        assistant: result.say || '',
+        assistant,
         debug: {
           intent: result.intent,
           pending: state.pending,
-          defaults: state.defaults
+          defaults: state.defaults,
+          reminders_open: engine.listOpen().length
         }
       });
     }
