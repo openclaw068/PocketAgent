@@ -7,6 +7,7 @@ import { ReminderEngine, newId } from './reminders.js';
 import { handleUtterance } from './agent.js';
 import { loadJson, saveJson } from './store.js';
 import { answerReminderQuery, selectRemindersForQuery } from './query.js';
+import { setVolumePercent } from './volume.js';
 
 const DATA_DIR = process.env.POCKETAGENT_DATA_DIR || './data';
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -195,6 +196,16 @@ async function oneTurn() {
       reminders: selected
     });
     await say(answer);
+    return;
+  }
+
+  if (result.intent === 'set_volume') {
+    const pct = await setVolumePercent({
+      card: DEFAULTS.alsaCard,
+      control: DEFAULTS.alsaVolumeControl,
+      percent: result.percent
+    });
+    await say(`Done — volume set to ${pct} percent.`);
     return;
   }
 

@@ -58,7 +58,8 @@ async function parseDefaultUpdate({ baseUrl, apiKeyEnv, model, userText }) {
         content:
           'Extract DEFAULT follow-up settings the user wants. Respond with ONLY valid JSON. ' +
           'If user wants no followups, mode="once". ' +
-          'If user wants repeating followups, mode="repeat" and set everyMin. '
+          'If user wants repeating followups, mode="repeat" and set everyMin. ' +
+          'Also extract maxCount and quietHours when mentioned.'
       },
       { role: 'user', content: `User said: ${userText}\nSchema: ${JSON.stringify(schemaHint)}` }
     ]
@@ -76,6 +77,47 @@ export async function handleUtterance({ baseUrl, apiKeyEnv, model, text, state }
   const t = text.trim();
   if (!t) return { say: "I didn't catch that. Try again.", state };
 
+  // Pending: confirm volume change
+  if (state.pending?.kind === 'confirm_volume') {
+    if (/\b(yes|yep|yeah|do it|confirm|ok|okay)\b/i.test(t)) {
+      const pct = state.pending.percent;
+      return { intent: 'set_volume', percent: pct, say: `Okay — setting volume to ${pct} percent.`, state: { ...state, pending: null } };
+    }
+    if (/\b(no|nope|cancel|stop|never mind)\b/i.test(t)) {
+      return { intent: 'cancel', say: `Okay — not changing the volume.`, state: { ...state, pending: null } };
+    }
+    return { intent: 'clarify', say: `Just say yes to set volume to ${state.pending.percent} percent, or no to cancel.`, state };
+  }
+
+  // Pending: confirm follow-up policy for a reminder
+  if (state.pending?.kind === 'confirm_followup') {
+    if (/\b(yes|yep|yeah|correct|sounds right|ok|okay)\b/i.test(t)) {
+      const { reminderText, timeText, followupSpec } = state.pending;
+      return {
+        intent: 'set_followup',
+        followupSpec,
+        say: `Perfect.`,
+        state: {
+          ...state,
+          pending: null,
+          collected: { reminderText, timeText, followupSpec }
+        }
+      };
+    }
+    if (/\b(no|nope|cancel|stop|never mind)\b/i.test(t)) {
+      // Ask again
+      return {
+        intent: 'clarify',
+        say: `Okay — how do you want me to handle follow-ups if you don’t respond?`,
+        state: {
+          ...state,
+          pending: { kind: 'ask_followup', reminderText: state.pending.reminderText, timeText: state.pending.timeText }
+        }
+      };
+    }
+    return { intent: 'clarify', say: `Just say yes if that follow-up plan is right, or no to change it.`, state };
+  }
+
   // Mid-flow: ask for time
   if (state.pending?.kind === 'ask_time') {
     return {
@@ -89,10 +131,34 @@ export async function handleUtterance({ baseUrl, apiKeyEnv, model, text, state }
   // Mid-flow: follow-up policy
   if (state.pending?.kind === 'ask_followup') {
     const spec = await parseFollowupSpec({ baseUrl, apiKeyEnv, model, userText: t });
+    // conversational confirmation for critical values
+    const wantsDefault = spec?.kind === 'use_default';
+    if (!wantsDefault) {
+      const parts = [];
+      if (spec.everyMin === null) parts.push('no follow-ups');
+      else if (spec.everyMin != null) parts.push(`every ${spec.everyMin} minutes`);
+      if (spec.maxCount != null) parts.push(`max ${spec.maxCount} times`);
+      if (spec.quietHours) parts.push(`quiet hours ${spec.quietHours.start}:00 to ${spec.quietHours.end}:00`);
+      const summary = parts.length ? parts.join(', ') : 'custom follow-ups';
+      return {
+        intent: 'confirm_followup',
+        say: `Just to confirm — for this reminder, ${summary}. Sound right?`,
+        state: {
+          ...state,
+          pending: {
+            kind: 'confirm_followup',
+            reminderText: state.pending.reminderText,
+            timeText: state.pending.timeText,
+            followupSpec: spec
+          }
+        }
+      };
+    }
+
     return {
       intent: 'set_followup',
       followupSpec: spec,
-      say: `Got it.`,
+      say: `Got it — I’ll use your default follow-ups.`,
       state: {
         ...state,
         pending: null,
@@ -123,6 +189,43 @@ export async function handleUtterance({ baseUrl, apiKeyEnv, model, text, state }
     return { intent: 'ack_latest', say: `Nice — I’ll mark that as done.`, state };
   }
 
+  // Volume commands
+  // Examples: "set volume to 60%", "volume 30", "turn it down", "mute"
+  if (/\b(volume|louder|quieter|turn it up|turn it down|mute)\b/i.test(t)) {
+    if (/\bmute\b/i.test(t)) {
+      return {
+        intent: 'volume_request',
+        say: `Okay. What volume percent do you want (0 to 100)?`,
+        state: { ...state, pending: { kind: 'ask_volume' } }
+      };
+    }
+    const m = t.match(/(\d{1,3})\s*%?/);
+    if (m) {
+      const pct = Math.max(0, Math.min(100, Number(m[1])));
+      return {
+        intent: 'confirm_volume',
+        say: `Just to confirm — should I set the volume to ${pct} percent?`,
+        state: { ...state, pending: { kind: 'confirm_volume', percent: pct } }
+      };
+    }
+    return {
+      intent: 'volume_request',
+      say: `Sure — what volume percent do you want (0 to 100)?`,
+      state: { ...state, pending: { kind: 'ask_volume' } }
+    };
+  }
+
+  if (state.pending?.kind === 'ask_volume') {
+    const m = t.match(/(\d{1,3})/);
+    if (!m) return { intent: 'clarify', say: `Give me a number from 0 to 100.`, state };
+    const pct = Math.max(0, Math.min(100, Number(m[1])));
+    return {
+      intent: 'confirm_volume',
+      say: `Just to confirm — set volume to ${pct} percent?`,
+      state: { ...state, pending: { kind: 'confirm_volume', percent: pct } }
+    };
+  }
+
   // Reminder queries
   if (/\b(what do i have|what's coming up|whats coming up|coming up today|today\b|tomorrow\b|yesterday\b|list reminders|my reminders)\b/i.test(t)) {
     return { intent: 'query_reminders', queryText: t, say: `Let me check your reminders.`, state };
@@ -137,10 +240,10 @@ export async function handleUtterance({ baseUrl, apiKeyEnv, model, text, state }
     };
   }
 
-  // Guardrails: this agent only does reminders.
+  // Guardrails: only reminders + volume.
   return {
     intent: 'out_of_scope',
-    say: `I can help with reminders — set one, change your default follow-ups, or ask what’s coming up today.`,
+    say: `I can help with reminders and volume — set a reminder, ask what’s coming up, or say “set volume to 60 percent.”`,
     state
   };
 }

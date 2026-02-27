@@ -6,6 +6,7 @@ import { handleUtterance } from '../pocketagent/agent.js';
 import { loadJson, saveJson } from '../pocketagent/store.js';
 import { ReminderEngine, newId } from '../pocketagent/reminders.js';
 import { answerReminderQuery, selectRemindersForQuery } from '../pocketagent/query.js';
+import { setVolumePercent } from '../pocketagent/volume.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -138,11 +139,21 @@ const server = http.createServer(async (req, res) => {
         state.collected = null;
       }
 
-      // Query reminders
+      // Query reminders / volume
       let assistant = result.say || '';
+
       if (result.intent === 'query_reminders') {
         const selected = selectRemindersForQuery(engine, result.queryText);
         assistant = await answerReminderQuery({ baseUrl, apiKeyEnv, model, queryText: result.queryText, reminders: selected });
+      }
+
+      if (result.intent === 'set_volume') {
+        const pct = await setVolumePercent({
+          card: process.env.POCKETAGENT_ALSA_CARD ?? null,
+          control: process.env.POCKETAGENT_ALSA_VOLUME_CONTROL || 'Speaker',
+          percent: result.percent
+        });
+        assistant = `Done — volume set to ${pct} percent.`;
       }
 
       return json(res, 200, {

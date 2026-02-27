@@ -16,6 +16,11 @@ export const DEFAULTS = {
   // Behavior
   defaultsFile: process.env.POCKETAGENT_DEFAULTS_FILE || './data/defaults.json',
   remindersDbFile: process.env.POCKETAGENT_REMINDERS_DB || './data/reminders.json',
+
+  // Volume (ALSA/amixer)
+  alsaCard: process.env.POCKETAGENT_ALSA_CARD ?? null, // e.g. 0, 1
+  alsaVolumeControl: process.env.POCKETAGENT_ALSA_VOLUME_CONTROL || 'Speaker',
+
   // If true, prefer offline TTS when available (Piper). On Pi Zero 2W, this may be too slow/limited.
   preferOfflineTts: (process.env.POCKETAGENT_PREFER_OFFLINE_TTS || '').toLowerCase() === 'true'
 };
