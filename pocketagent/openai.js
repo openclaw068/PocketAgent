@@ -6,6 +6,39 @@ function getApiKey(envName = 'OPENAI_API_KEY') {
   return key;
 }
 
+async function fetchWithTimeout(url, init = {}, timeoutMs = 60_000) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function fetchWithRetry(url, init, { timeoutMs = 60_000, retries = 2 } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetchWithTimeout(url, init, timeoutMs);
+      if (res.ok) return res;
+      // retry on rate limits and transient errors
+      if ([429, 500, 502, 503, 504].includes(res.status) && attempt < retries) {
+        const backoff = 500 * Math.pow(2, attempt);
+        await new Promise(r => setTimeout(r, backoff));
+        continue;
+      }
+      return res;
+    } catch (e) {
+      lastErr = e;
+      if (attempt >= retries) throw e;
+      const backoff = 500 * Math.pow(2, attempt);
+      await new Promise(r => setTimeout(r, backoff));
+    }
+  }
+  throw lastErr;
+}
+
 export async function whisperTranscribe({ baseUrl, apiKeyEnv, audioPath, model }) {
   const apiKey = getApiKey(apiKeyEnv);
   const url = `${baseUrl.replace(/\/$/, '')}/audio/transcriptions`;
@@ -14,7 +47,7 @@ export async function whisperTranscribe({ baseUrl, apiKeyEnv, audioPath, model }
   fd.append('model', model);
   fd.append('file', new Blob([fs.readFileSync(audioPath)]), 'audio.wav');
 
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}` },
     body: fd
@@ -30,7 +63,7 @@ export async function whisperTranscribe({ baseUrl, apiKeyEnv, audioPath, model }
 export async function chat({ baseUrl, apiKeyEnv, model, messages }) {
   const apiKey = getApiKey(apiKeyEnv);
   const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -50,7 +83,7 @@ export async function ttsToWav({ baseUrl, apiKeyEnv, model, voice, text }) {
   const apiKey = getApiKey(apiKeyEnv);
   const url = `${baseUrl.replace(/\/$/, '')}/audio/speech`;
 
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,

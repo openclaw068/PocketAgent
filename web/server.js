@@ -72,7 +72,8 @@ function json(res, status, obj) {
 
 function requireAccessKey(req) {
   const expected = process.env.POCKETAGENT_WEB_ACCESS_KEY;
-  if (!expected) return true; // no auth configured
+  // Secure-by-default in production: require an access key.
+  if (!expected) return process.env.NODE_ENV !== 'production';
   const got = req.headers['x-access-key'];
   return typeof got === 'string' && got === expected;
 }

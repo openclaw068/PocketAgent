@@ -116,6 +116,9 @@ function isAck(text) {
 }
 
 async function notify(reminder, meta) {
+  // Track which reminder we most recently spoke, so "done" can clear the right one.
+  runtime.state.lastNotifiedReminderId = reminder.id;
+
   const prompt = meta.kind === 'due'
     ? `Reminder: ${reminder.text}. Did you do it?`
     : `Did you do it yet? ${reminder.text}`;
@@ -180,9 +183,8 @@ async function oneTurn({ abortSignal = null } = {}) {
   }
 
   if (result.intent === 'ack_latest') {
-    const open = engine.listOpen().sort((a,b)=> (a.dueAtIso||'').localeCompare(b.dueAtIso||''));
-    const latest = open[0];
-    if (latest) engine.acknowledge(latest.id);
+    const id = runtime.state.lastNotifiedReminderId;
+    if (id) engine.acknowledge(id);
     await say(result.say);
     return;
   }

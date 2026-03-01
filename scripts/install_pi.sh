@@ -6,6 +6,7 @@ set -euo pipefail
 
 APP_DIR="/opt/pocketagent"
 USER_NAME="pi"
+REPO_URL="${POCKETAGENT_REPO_URL:-https://github.com/openclaw068/PocketAgent.git}"
 
 apt-get update
 apt-get install -y --no-install-recommends \
@@ -26,7 +27,7 @@ if [ -d "$APP_DIR/.git" ]; then
   git -C "$APP_DIR" pull
 else
   echo "Cloning repo into $APP_DIR"
-  git clone . "$APP_DIR"
+  git clone "$REPO_URL" "$APP_DIR"
 fi
 
 cd "$APP_DIR"
@@ -34,6 +35,15 @@ cd "$APP_DIR"
 npm ci || npm install
 
 mkdir -p "$APP_DIR/data"
+
+# Ensure service user can access audio + gpio
+usermod -aG audio,gpio "$USER_NAME" || true
+
+# Lock down env file location for secrets (user should add OPENAI_API_KEY here)
+touch /etc/default/pocketagent
+chown root:root /etc/default/pocketagent
+chmod 600 /etc/default/pocketagent
+
 chown -R "$USER_NAME":"$USER_NAME" "$APP_DIR"
 
 # systemd

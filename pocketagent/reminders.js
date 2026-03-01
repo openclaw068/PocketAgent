@@ -9,6 +9,7 @@ export class ReminderEngine {
     this.tz = timezone;
     this.state = loadJson(dbFile, { reminders: [] });
     this.jobs = new Map();
+    this.followupTimers = new Map(); // id -> timeout handle
   }
 
   save() {
@@ -65,19 +66,43 @@ export class ReminderEngine {
     r.acknowledgedAtIso = new Date().toISOString();
     this.save();
     this._cancel(id);
+    this._cancelFollowup(id);
     return r;
   }
 
   start(notifyFn) {
     this.notifyFn = notifyFn;
-    // schedule all open reminders
-    for (const r of this.listOpen()) this._scheduleReminder(r);
+
+    const now = Date.now();
+    // schedule all open reminders, but also handle overdue reminders + resume follow-ups
+    for (const r of this.listOpen()) {
+      const dueMs = new Date(r.dueAtIso).getTime();
+
+      // If overdue and never notified, fire ASAP.
+      if (!Number.isNaN(dueMs) && dueMs <= now && !r.lastNotifiedAtIso) {
+        setTimeout(() => this._fire(r.id), 1000);
+        continue;
+      }
+
+      this._scheduleReminder(r);
+
+      // If already notified and followups are enabled, resume followup loop based on lastNotifiedAt.
+      if (r.lastNotifiedAtIso && r.followupEveryMin && r.followupEveryMin > 0) {
+        this._scheduleFollowup(r);
+      }
+    }
   }
 
   _cancel(id) {
     const job = this.jobs.get(id);
     if (job) job.cancel();
     this.jobs.delete(id);
+  }
+
+  _cancelFollowup(id) {
+    const t = this.followupTimers.get(id);
+    if (t) clearTimeout(t);
+    this.followupTimers.delete(id);
   }
 
   _scheduleReminder(r) {
@@ -112,22 +137,41 @@ export class ReminderEngine {
   }
 
   _scheduleFollowup(r) {
+    this._cancelFollowup(r.id);
+
     const everyMs = r.followupEveryMin * 60_000;
-    const tick = async () => {
+
+    const scheduleNext = () => {
       const rr = this.state.reminders.find(x => x.id === r.id);
       if (!rr || rr.status !== 'open') return;
-      if (rr.followupMaxCount != null && rr.followupCount >= rr.followupMaxCount) return;
+
+      const lastMs = rr.lastNotifiedAtIso ? new Date(rr.lastNotifiedAtIso).getTime() : Date.now();
+      const nextMs = lastMs + everyMs;
+      const delay = Math.max(1_000, nextMs - Date.now());
+
+      const handle = setTimeout(tick, delay);
+      this.followupTimers.set(r.id, handle);
+    };
+
+    const tick = async () => {
+      const rr = this.state.reminders.find(x => x.id === r.id);
+      if (!rr || rr.status !== 'open') return this._cancelFollowup(r.id);
+      if (rr.followupMaxCount != null && rr.followupCount >= rr.followupMaxCount) return this._cancelFollowup(r.id);
+
       if (this._inQuietHours(rr.followupQuietHours)) {
-        setTimeout(tick, everyMs);
+        // During quiet hours, keep trying at the same cadence.
+        scheduleNext();
         return;
       }
+
       rr.followupCount += 1;
       rr.lastNotifiedAtIso = new Date().toISOString();
       this.save();
       await this.notifyFn?.(rr, { kind: 'followup' });
-      setTimeout(tick, everyMs);
+      scheduleNext();
     };
-    setTimeout(tick, everyMs);
+
+    scheduleNext();
   }
 }
 
