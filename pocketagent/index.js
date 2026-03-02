@@ -83,16 +83,23 @@ function parseDue(timeText) {
 }
 
 async function say(text) {
-  const wav = await ttsToWav({
-    baseUrl,
-    apiKeyEnv,
-    model: DEFAULTS.ttsModel,
-    voice: DEFAULTS.ttsVoice,
-    text
-  });
-  const out = path.join(DATA_DIR, 'tts.wav');
-  fs.writeFileSync(out, wav);
-  await playWav({ wavPath: out, cmd: DEFAULTS.playbackCommand, device: DEFAULTS.playbackDevice });
+  // Never let TTS/audio failures crash the whole loop.
+  try {
+    const wav = await ttsToWav({
+      baseUrl,
+      apiKeyEnv,
+      model: DEFAULTS.ttsModel,
+      voice: DEFAULTS.ttsVoice,
+      text
+    });
+    const out = path.join(DATA_DIR, 'tts.wav');
+    fs.writeFileSync(out, wav);
+    await playWav({ wavPath: out, cmd: DEFAULTS.playbackCommand, device: DEFAULTS.playbackDevice });
+  } catch (e) {
+    console.error('say() failed:', e?.message ?? e);
+    // Fallback: log the prompt so the system stays usable even if quota is exhausted.
+    console.log('SAY:', text);
+  }
 }
 
 async function listenForAck({ secondsMax = 5 }) {
@@ -139,7 +146,27 @@ engine.start(async (r, meta) => notify(r, meta));
 async function oneTurn({ abortSignal = null } = {}) {
   const wavPath = path.join(DATA_DIR, 'input.wav');
   await say('Hold the button and speak.');
-  await recordToWav({ outPath: wavPath, sampleRateHertz: DEFAULTS.sampleRateHertz, device: DEFAULTS.recordingDevice, secondsMax: 8, abortSignal });
+
+  const rec = await recordToWav({
+    outPath: wavPath,
+    sampleRateHertz: DEFAULTS.sampleRateHertz,
+    device: DEFAULTS.recordingDevice,
+    secondsMax: 8,
+    abortSignal
+  });
+
+  // If the user released immediately, arecord exits (often code 130) and we may have
+  // no file. Avoid crashing on ENOENT.
+  if (rec?.aborted && !fs.existsSync(wavPath)) {
+    console.log('Recording aborted before audio was written; ignoring.');
+    return;
+  }
+
+  if (!fs.existsSync(wavPath)) {
+    console.error('Missing recorded audio file:', wavPath);
+    await say('I did not capture any audio. Try holding the button a bit longer.');
+    return;
+  }
 
   const text = await whisperTranscribe({ baseUrl, apiKeyEnv, audioPath: wavPath, model: DEFAULTS.whisperModel });
   console.log('Heard:', text);
