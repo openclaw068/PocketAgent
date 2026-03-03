@@ -104,6 +104,15 @@ sudo nano /etc/default/pocketagent   # add OPENAI_API_KEY=...
 POCKETAGENT_RECORDING_DEVICE=plughw:1,0
 POCKETAGENT_PLAYBACK_DEVICE=plughw:1,0
 
+# ULTRA++ push-to-talk (some gpiod builds want chip number, not name)
+POCKETAGENT_GPIO_CHIP=0
+POCKETAGENT_PTT_GPIO_LINE=23
+POCKETAGENT_PTT_ACTIVE_LOW=true
+
+# Make it feel conversational: auto-listen after questions (no 2nd button press)
+POCKETAGENT_AUTO_LISTEN_ON_PROMPTS=true
+POCKETAGENT_AUTO_LISTEN_SECONDS=6
+
 sudo systemctl start pocketagent
 sudo journalctl -u pocketagent -f
 ```

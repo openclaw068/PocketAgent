@@ -56,7 +56,26 @@ done
 usermod -aG audio,gpio "$USER_NAME" || true
 
 # Lock down env file location for secrets (user should add OPENAI_API_KEY here)
-touch /etc/default/pocketagent
+# IMPORTANT: systemd EnvironmentFile expects ONE KEY=VALUE per line.
+cat >/etc/default/pocketagent <<'EOF'
+# PocketAgent environment (one KEY=VALUE per line)
+# Required:
+# OPENAI_API_KEY=sk-...
+
+# Recommended on WM8960/ULTRA++:
+# POCKETAGENT_RECORDING_DEVICE=plughw:1,0
+# POCKETAGENT_PLAYBACK_DEVICE=plughw:1,0
+
+# ULTRA++ push-to-talk:
+# POCKETAGENT_GPIO_CHIP=0
+# POCKETAGENT_PTT_GPIO_LINE=23
+# POCKETAGENT_PTT_ACTIVE_LOW=true
+
+# Conversation mode (hands-free replies after questions):
+# POCKETAGENT_AUTO_LISTEN_ON_PROMPTS=true
+# POCKETAGENT_AUTO_LISTEN_SECONDS=6
+EOF
+
 chown root:root /etc/default/pocketagent
 chmod 600 /etc/default/pocketagent
 
