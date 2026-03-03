@@ -111,7 +111,15 @@ async function listenForAck({ secondsMax = 5 }) {
       device: DEFAULTS.recordingDevice,
       secondsMax
     });
-    const text = await whisperTranscribe({ baseUrl, apiKeyEnv, audioPath: wavPath, model: DEFAULTS.whisperModel });
+    const text = await whisperTranscribe({
+      baseUrl,
+      apiKeyEnv,
+      audioPath: wavPath,
+      model: DEFAULTS.whisperModel,
+      prompt: process.env.POCKETAGENT_WHISPER_PROMPT || null,
+      language: process.env.POCKETAGENT_WHISPER_LANGUAGE || null,
+      responseFormat: process.env.POCKETAGENT_WHISPER_RESPONSE_FORMAT || 'json'
+    });
     return (text || '').trim();
   } catch {
     return '';
@@ -168,7 +176,15 @@ async function oneTurn({ abortSignal = null } = {}) {
     return;
   }
 
-  const text = await whisperTranscribe({ baseUrl, apiKeyEnv, audioPath: wavPath, model: DEFAULTS.whisperModel });
+  const text = await whisperTranscribe({
+    baseUrl,
+    apiKeyEnv,
+    audioPath: wavPath,
+    model: DEFAULTS.whisperModel,
+    prompt: process.env.POCKETAGENT_WHISPER_PROMPT || null,
+    language: process.env.POCKETAGENT_WHISPER_LANGUAGE || null,
+    responseFormat: process.env.POCKETAGENT_WHISPER_RESPONSE_FORMAT || 'json'
+  });
   console.log('Heard:', text);
 
   const result = await handleUtterance({ baseUrl, apiKeyEnv, model: DEFAULTS.chatModel, text, state: runtime.state });

@@ -39,12 +39,17 @@ async function fetchWithRetry(url, init, { timeoutMs = 60_000, retries = 2 } = {
   throw lastErr;
 }
 
-export async function whisperTranscribe({ baseUrl, apiKeyEnv, audioPath, model }) {
+export async function whisperTranscribe({ baseUrl, apiKeyEnv, audioPath, model, prompt = null, language = null, responseFormat = 'json' }) {
   const apiKey = getApiKey(apiKeyEnv);
   const url = `${baseUrl.replace(/\/$/, '')}/audio/transcriptions`;
 
   const fd = new FormData();
   fd.append('model', model);
+  if (prompt) fd.append('prompt', prompt);
+  if (language) fd.append('language', language);
+  if (responseFormat) fd.append('response_format', responseFormat);
+
+  // Node 18+ provides Blob/FormData. Provide a filename so multipart is well-formed.
   fd.append('file', new Blob([fs.readFileSync(audioPath)]), 'audio.wav');
 
   const res = await fetchWithRetry(url, {
@@ -54,10 +59,16 @@ export async function whisperTranscribe({ baseUrl, apiKeyEnv, audioPath, model }
   });
   if (!res.ok) {
     const t = await res.text().catch(() => '');
-    throw new Error(`Whisper transcription failed: ${res.status} ${res.statusText} ${t}`);
+    throw new Error(`STT transcription failed: ${res.status} ${res.statusText} ${t}`);
   }
-  const json = await res.json();
-  return json.text;
+
+  // API may return JSON (default) or plain text (response_format=text)
+  const ct = res.headers.get('content-type') || '';
+  if (ct.includes('application/json')) {
+    const json = await res.json();
+    return json.text ?? '';
+  }
+  return (await res.text().catch(() => '')).trim();
 }
 
 export async function chat({ baseUrl, apiKeyEnv, model, messages }) {
