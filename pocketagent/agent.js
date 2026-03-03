@@ -118,8 +118,24 @@ export async function handleUtterance({ baseUrl, apiKeyEnv, model, text, state }
     return { intent: 'clarify', say: `Just say yes if that follow-up plan is right, or no to change it.`, state };
   }
 
+  function looksLikeTime(text) {
+    const s = text.trim().toLowerCase();
+    if (!s) return false;
+    // Accept patterns like: "7am", "7:30am", "tomorrow 7am"
+    return /^(tomorrow\s+)?\d{1,2}(?::\d{2})?\s*(am|pm)?$/.test(s);
+  }
+
   // Mid-flow: ask for time
   if (state.pending?.kind === 'ask_time') {
+    // If the user says yes/no here, they're probably responding to a previous confirmation.
+    if (/\b(yes|yep|yeah|no|nope|ok|okay)\b/i.test(t)) {
+      return { intent: 'clarify', say: `What time should I remind you? For example: “7am” or “tomorrow 7am”.`, state };
+    }
+
+    if (!looksLikeTime(t)) {
+      return { intent: 'clarify', say: `I didn’t catch a time. Say something like “7am” or “tomorrow 7am”.`, state };
+    }
+
     return {
       intent: 'set_time',
       timeText: t,

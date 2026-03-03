@@ -248,7 +248,7 @@ async function oneTurn({ abortSignal = null } = {}) {
   // listen immediately after speaking so the user can respond without pressing the button again.
   if ((process.env.POCKETAGENT_AUTO_LISTEN_ON_PROMPTS ?? 'false').toLowerCase() === 'true') {
     const pendingKind = runtime.state?.pending?.kind;
-    const shouldAutoListen = pendingKind && pendingKind !== 'confirm_volume' ? true : !!pendingKind;
+    const shouldAutoListen = !!pendingKind;
 
     if (shouldAutoListen) {
       const secondsMax = Number(process.env.POCKETAGENT_AUTO_LISTEN_SECONDS ?? 6);
@@ -275,6 +275,14 @@ async function oneTurn({ abortSignal = null } = {}) {
         console.log('Heard (auto):', text2);
         const result2 = await handleUtterance({ baseUrl, apiKeyEnv, model: DEFAULTS.chatModel, text: text2, state: runtime.state });
         runtime.state = result2.state ?? runtime.state;
+
+        // If the follow-up utterance didn't advance the dialogue (out_of_scope/clarify),
+        // say something helpful that references the current pending step.
+        if (result2.intent === 'out_of_scope' && pendingKind === 'ask_time') {
+          await say('What time should I remind you? For example: 7am.');
+          return;
+        }
+
         if (result2.say) await say(result2.say);
         return;
       }
