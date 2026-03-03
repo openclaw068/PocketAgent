@@ -3,6 +3,7 @@ export const DEFAULTS = {
   // Audio
   sampleRateHertz: 16000,
   recordingDevice: process.env.POCKETAGENT_RECORDING_DEVICE || null,
+  recordingChannels: Number(process.env.POCKETAGENT_RECORDING_CHANNELS || 1),
   playbackCommand: process.env.POCKETAGENT_PLAYBACK_CMD || 'aplay',
   playbackDevice: process.env.POCKETAGENT_PLAYBACK_DEVICE || null, // e.g. plughw:1,0
 

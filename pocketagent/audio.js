@@ -1,15 +1,15 @@
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 
-export async function recordToWav({ outPath, sampleRateHertz = 16000, device = null, secondsMax = 20, abortSignal = null }) {
-  // Uses arecord (ALSA). WAV container, 16-bit LE, mono.
+export async function recordToWav({ outPath, sampleRateHertz = 16000, channels = 1, device = null, secondsMax = 20, abortSignal = null }) {
+  // Uses arecord (ALSA). WAV container, 16-bit LE.
   // If abortSignal is provided, recording stops on abort (push-to-talk release).
   return new Promise((resolve, reject) => {
     const args = [
       '-q',
       '-D', device ?? 'default',
       '-f', 'S16_LE',
-      '-c', '1',
+      '-c', String(channels),
       '-r', String(sampleRateHertz),
       '-t', 'wav',
       outPath

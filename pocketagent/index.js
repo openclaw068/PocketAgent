@@ -170,6 +170,7 @@ async function oneTurn({ abortSignal = null } = {}) {
   const rec = await recordToWav({
     outPath: wavPath,
     sampleRateHertz: DEFAULTS.sampleRateHertz,
+    channels: DEFAULTS.recordingChannels,
     device: DEFAULTS.recordingDevice,
     secondsMax: 8,
     abortSignal
@@ -254,12 +255,29 @@ async function oneTurn({ abortSignal = null } = {}) {
     if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
 
     try {
-      await recordToWav({
-        outPath: wavPath2,
-        sampleRateHertz: DEFAULTS.sampleRateHertz,
-        device: DEFAULTS.recordingDevice,
-        secondsMax
-      });
+      const attempts = Number(process.env.POCKETAGENT_AUTO_LISTEN_RECORD_RETRIES ?? 4);
+      let lastErr = null;
+      for (let i = 0; i < attempts; i++) {
+        try {
+          await recordToWav({
+            outPath: wavPath2,
+            sampleRateHertz: DEFAULTS.sampleRateHertz,
+            channels: DEFAULTS.recordingChannels,
+            device: DEFAULTS.recordingDevice,
+            secondsMax
+          });
+          lastErr = null;
+          break;
+        } catch (e) {
+          lastErr = e;
+          // backoff a bit and retry (ALSA can be briefly busy right after playback)
+          await new Promise(r => setTimeout(r, 250));
+        }
+      }
+      if (lastErr) {
+        console.error('[PocketAgent] auto-listen record failed:', lastErr?.message ?? lastErr);
+        return '';
+      }
     } catch (e) {
       console.error('[PocketAgent] auto-listen record failed:', e?.message ?? e);
       return '';
