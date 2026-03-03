@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DEFAULTS } from './config.js';
 import { recordToWav, playWav } from './audio.js';
-import { whisperTranscribe, ttsToWav } from './openai.js';
+import { whisperTranscribe, ttsToAudio } from './openai.js';
 import { ReminderEngine, newId } from './reminders.js';
 import { handleUtterance } from './agent.js';
 import { loadJson, saveJson } from './store.js';
@@ -85,15 +85,22 @@ function parseDue(timeText) {
 async function say(text) {
   // Never let TTS/audio failures crash the whole loop.
   try {
-    const wav = await ttsToWav({
+    const { audio, contentType } = await ttsToAudio({
       baseUrl,
       apiKeyEnv,
       model: DEFAULTS.ttsModel,
       voice: DEFAULTS.ttsVoice,
-      text
+      text,
+      format: 'wav'
     });
     const out = path.join(DATA_DIR, 'tts.wav');
-    fs.writeFileSync(out, wav);
+    fs.writeFileSync(out, audio);
+
+    // Quick sanity check to avoid blasting static if the provider returns MP3/etc.
+    if (!audio?.slice?.(0, 4)?.equals?.(Buffer.from('RIFF')) && !(contentType || '').includes('wav')) {
+      throw new Error(`TTS did not return WAV (content-type=${contentType || 'unknown'})`);
+    }
+
     await playWav({ wavPath: out, cmd: DEFAULTS.playbackCommand, device: DEFAULTS.playbackDevice });
   } catch (e) {
     console.error('say() failed:', e?.message ?? e);

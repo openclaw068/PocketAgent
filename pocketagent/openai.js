@@ -90,22 +90,44 @@ export async function chat({ baseUrl, apiKeyEnv, model, messages }) {
   return json.choices?.[0]?.message?.content ?? '';
 }
 
-export async function ttsToWav({ baseUrl, apiKeyEnv, model, voice, text }) {
+export async function ttsToAudio({ baseUrl, apiKeyEnv, model, voice, text, format = 'wav' }) {
   const apiKey = getApiKey(apiKeyEnv);
   const url = `${baseUrl.replace(/\/$/, '')}/audio/speech`;
+
+  // Some API variants ignore unknown fields. Historically, speech has used either
+  // `format` or `response_format` depending on the provider/version.
+  // We send both and also set Accept to prefer WAV.
+  const body = {
+    model,
+    voice,
+    input: text,
+    format,
+    response_format: format
+  };
 
   const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      Accept: format === 'wav' ? 'audio/wav' : 'audio/*'
     },
-    body: JSON.stringify({ model, voice, format: 'wav', input: text })
+    body: JSON.stringify(body)
   });
+
   if (!res.ok) {
     const t = await res.text().catch(() => '');
     throw new Error(`TTS failed: ${res.status} ${res.statusText} ${t}`);
   }
+
+  const contentType = res.headers.get('content-type') || '';
   const arrayBuffer = await res.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  return { audio: Buffer.from(arrayBuffer), contentType };
 }
+
+// Back-compat: older callers expect a Buffer containing WAV bytes.
+export async function ttsToWav(opts) {
+  const { audio } = await ttsToAudio({ ...opts, format: 'wav' });
+  return audio;
+}
+
