@@ -21,10 +21,18 @@ export function startButtonWatcher({
   const help = spawnSync('gpiomon', ['--help'], { encoding: 'utf8' });
   const helpText = `${help.stdout || ''}\n${help.stderr || ''}`;
   const supportsDebounceP = helpText.includes('--debounce-period') || helpText.includes('-p,');
+  const supportsFormatF = helpText.includes(' -F') || helpText.includes('\n-F') || helpText.includes('--format') || helpText.includes('%E');
+  const supportsSilentS = helpText.includes(' -s') || helpText.includes('\n-s') || helpText.includes('--silent');
 
-  const args = ['-n', '-F', '%E', '-s'];
+  const args = ['-n'];
+  // Some gpiomon builds (older/different libgpiod) don't support -F. If unsupported,
+  // we fall back to parsing default output.
+  if (supportsFormatF) args.push('-F', '%E');
+  if (supportsSilentS) args.push('-s');
+
   if (supportsDebounceP) args.push('-p', String(debounceMs));
   else args.push('-B', String(debounceMs));
+
   args.push(gpioChip, String(line));
 
   const listeners = { press: [], release: [] };
@@ -60,9 +68,12 @@ export function startButtonWatcher({
         const lineText = buf.slice(0, i).trim();
         buf = buf.slice(i + 1);
         if (!lineText) continue;
-        const edge = lineText.toLowerCase();
-        if (edge !== 'rising' && edge !== 'falling') continue;
-        emit(edgeToAction(edge));
+        // Output format depends on gpiomon version/flags. We try to extract an edge token.
+        // Common values: "rising" / "falling" or a longer line containing those words.
+        const lower = lineText.toLowerCase();
+        const m = lower.match(/\b(rising|falling)\b/);
+        if (!m) continue;
+        emit(edgeToAction(m[1]));
       }
     });
 
