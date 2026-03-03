@@ -443,7 +443,8 @@ async function oneTurn({ abortSignal = null } = {}) {
     runtime.state = r1.state ?? runtime.state;
 
     // If it looks like a reminders intent, execute it here.
-    if (r1?.intent && r1.intent !== 'unknown') {
+    // In chat mode, treat reminders-only guardrails as a signal to fall back to general chat.
+    if (r1?.intent && r1.intent !== 'unknown' && r1.intent !== 'out_of_scope') {
       // Handle defaults updates
       if (r1.intent === 'update_defaults' && r1.defaultsPatch) {
         const p = r1.defaultsPatch;
