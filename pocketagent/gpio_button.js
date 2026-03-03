@@ -23,7 +23,6 @@ export function startButtonWatcher({
 
   const supportsFormatF = helpText.includes('--format') || helpText.includes('-F,') || helpText.includes('-F, --format') || helpText.includes(' -F,') || helpText.includes(' -F ');
   const supportsLineBuffered = helpText.includes('--line-buffered') || helpText.includes('-b,');
-  const supportsActiveLow = helpText.includes('--active-low') || helpText.includes('-l,');
 
   // NOTE: gpiomon CLI varies across libgpiod versions.
   // - On this Pi's gpiomon, `-n` requires a number (num events). Passing `-n` with no value
@@ -39,7 +38,8 @@ export function startButtonWatcher({
   // %e is numeric event type: 0=failing, 1=rising (per gpiomon --help)
   if (supportsFormatF) args.push('-F', '%e');
   if (supportsLineBuffered) args.push('-b');
-  if (supportsActiveLow && activeLow) args.push('-l');
+  // Do not pass -l/--active-low to gpiomon. We rely on raw edges and handle polarity ourselves
+  // via POCKETAGENT_PTT_ACTIVE_LOW to avoid confusing inverted semantics across versions.
 
   // (No debounce flag is portable across these versions.)
   void debounceMs; // reserved
