@@ -21,19 +21,21 @@ export function startButtonWatcher({
   const help = spawnSync('gpiomon', ['--help'], { encoding: 'utf8' });
   const helpText = `${help.stdout || ''}\n${help.stderr || ''}`;
   const supportsDebounceP = helpText.includes('--debounce-period') || helpText.includes('-p,');
-  const supportsFormatF = helpText.includes(' -F') || helpText.includes('\n-F') || helpText.includes('--format') || helpText.includes('%E');
-  const supportsSilentS = helpText.includes(' -s') || helpText.includes('\n-s') || helpText.includes('--silent');
+  const supportsDebounceB = helpText.includes(' -B') || helpText.includes('\n-B');
 
-  const args = ['-n'];
-  // Some gpiomon builds (older/different libgpiod) don't support -F. If unsupported,
-  // we fall back to parsing default output.
-  if (supportsFormatF) args.push('-F', '%E');
-  if (supportsSilentS) args.push('-s');
+  // NOTE: gpiomon CLI varies a lot between libgpiod versions. In some versions `-n`
+  // expects an integer (num events). Passing `-n` with no value causes the next flag
+  // (e.g. -F) to be consumed as the value, leading to confusing errors like
+  // "invalid number: -F". We therefore avoid `-n` entirely.
+  //
+  // We also avoid `-F` and `-s` for compatibility and parse rising/falling from the
+  // default output instead.
+  const args = [];
 
   if (supportsDebounceP) args.push('-p', String(debounceMs));
-  else args.push('-B', String(debounceMs));
+  else if (supportsDebounceB) args.push('-B', String(debounceMs));
 
-  args.push(gpioChip, String(line));
+  args.push(String(gpioChip), String(line));
 
   const listeners = { press: [], release: [] };
   let buf = '';
