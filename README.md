@@ -15,11 +15,22 @@ This repo contains a working skeleton:
 - After each spoken reminder, it listens briefly for a “yes/done” to auto-clear
 - **Push-to-talk button supported via `gpiomon` (libgpiod)** (defaults to ULTRA++ button on GPIO23)
 
+### Modes
+PocketAgent can run in two modes:
+- **Reminders mode** (default): reminder creation + follow-ups
+- **Chat mode**: neutral, general-purpose voice agent (hold-to-talk like ChatGPT)
+
+Set with:
+- `POCKETAGENT_MODE=reminders` (default)
+- `POCKETAGENT_MODE=chat`
+
+Chat mode keeps full conversation memory for the current run, and on restart it carries over the last N messages (default 10) from the previous run.
+
 ### Push-to-talk configuration
 By default PocketAgent uses GPIO push-to-talk.
 - `POCKETAGENT_PTT_MODE=gpio` (default)
 - `POCKETAGENT_PTT_GPIO_LINE=23` (ULTRA++ button)
-- `POCKETAGENT_GPIO_CHIP=gpiochip0`
+- `POCKETAGENT_GPIO_CHIP=0` (recommended; some gpiod builds want a chip number, not name)
 - `POCKETAGENT_PTT_ACTIVE_LOW=true` (recommended for ULTRA++; button pin has an external pull-up)
 - If you want dev mode: `POCKETAGENT_PTT_MODE=stdin` (press ENTER)
 

@@ -71,11 +71,18 @@ cat >/etc/default/pocketagent <<'EOF'
 # POCKETAGENT_PTT_GPIO_LINE=23
 # POCKETAGENT_PTT_ACTIVE_LOW=true
 
-# Conversation mode (hands-free replies after questions):
+# Modes:
+# POCKETAGENT_MODE=reminders   # default
+# POCKETAGENT_MODE=chat        # neutral voice agent
+
+# Conversation mode (hands-free replies after questions, reminders mode):
 # POCKETAGENT_AUTO_LISTEN_ON_PROMPTS=true
 # POCKETAGENT_AUTO_LISTEN_SECONDS=6
 # POCKETAGENT_AUTO_LISTEN_DELAY_MS=800
 # POCKETAGENT_AUTO_LISTEN_RECORD_RETRIES=4
+
+# Chat mode carryover (persist last N messages between restarts):
+# POCKETAGENT_CHAT_CARRYOVER_COUNT=10
 EOF
 
 chown root:root /etc/default/pocketagent
