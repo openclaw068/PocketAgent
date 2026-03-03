@@ -320,12 +320,16 @@ if (PTT_MODE === 'stdin') {
 
   let inTurn = false;
   let controller = null;
+  let pressAtMs = 0;
+
+  const MIN_HOLD_MS = Number(process.env.POCKETAGENT_PTT_MIN_HOLD_MS ?? 600);
 
   const watcher = startButtonWatcher();
   watcher
     .onPress(() => {
       if (inTurn) return;
       inTurn = true;
+      pressAtMs = Date.now();
       controller = new AbortController();
       // Start recording immediately; stop when release aborts.
       void safeOneTurn(controller.signal).finally(() => {
@@ -333,11 +337,22 @@ if (PTT_MODE === 'stdin') {
         setTimeout(() => {
           inTurn = false;
           controller = null;
+          pressAtMs = 0;
         }, Number(process.env.POCKETAGENT_PTT_COOLDOWN_MS ?? 200));
       });
     })
     .onRelease(() => {
       // Stop recording when user releases button.
-      try { controller?.abort(); } catch {}
+      // Some buttons bounce and can emit a release edge almost immediately after press.
+      // Enforce a minimum hold time before we abort arecord.
+      const elapsed = pressAtMs ? (Date.now() - pressAtMs) : Infinity;
+      const delay = Math.max(0, MIN_HOLD_MS - elapsed);
+      if (delay > 0) {
+        setTimeout(() => {
+          try { controller?.abort(); } catch {}
+        }, delay);
+      } else {
+        try { controller?.abort(); } catch {}
+      }
     });
 }
