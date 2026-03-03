@@ -345,6 +345,44 @@ function startNotifyServer() {
 
 startNotifyServer();
 
+async function maybeAnnounceStartupOncePerBoot() {
+  if ((process.env.POCKETAGENT_STARTUP_ANNOUNCE ?? 'false').toLowerCase() !== 'true') return;
+  if (DEFAULTS.mode !== 'chat') return;
+
+  const bootIdPath = '/proc/sys/kernel/random/boot_id';
+  let bootId = null;
+  try {
+    bootId = fs.readFileSync(bootIdPath, 'utf8').trim();
+  } catch {
+    // If boot_id isn’t available, fall back to “once per process start”.
+    bootId = null;
+  }
+
+  const markerPath = path.join(DATA_DIR, 'startup_announce_boot_id.txt');
+  let lastBootId = null;
+  try {
+    lastBootId = fs.readFileSync(markerPath, 'utf8').trim();
+  } catch {
+    lastBootId = null;
+  }
+
+  if (bootId && lastBootId === bootId) return;
+
+  const delayMs = Number(process.env.POCKETAGENT_STARTUP_ANNOUNCE_DELAY_MS ?? 1500);
+  const text = (process.env.POCKETAGENT_STARTUP_ANNOUNCE_TEXT || 'PocketAgent is online.').trim();
+
+  if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+  await say(text);
+
+  // Persist boot marker so we don’t announce again until the next reboot.
+  try {
+    fs.writeFileSync(markerPath, bootId ? `${bootId}\n` : `started:${new Date().toISOString()}\n`);
+  } catch {}
+}
+
+// Fire and forget
+void maybeAnnounceStartupOncePerBoot();
+
 async function oneTurn({ abortSignal = null } = {}) {
   busy = true;
   try {
