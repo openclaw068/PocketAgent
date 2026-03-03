@@ -41,8 +41,14 @@ export async function recordToWav({ outPath, sampleRateHertz = 16000, device = n
     proc.on('close', (code) => {
       clearTimeout(timeout);
       if (abortSignal) abortSignal.removeEventListener?.('abort', onAbort);
-      if (aborted) return resolve({ outPath, aborted: true });
+
+      // When using push-to-talk we often SIGINT the process mid-stream.
+      // arecord may exit with 130 (SIGINT) or sometimes 1 depending on ALSA/device state.
+      // If we initiated an abort, treat it as a clean abort regardless of exit code.
+      if (aborted) return resolve({ outPath, aborted: true, code });
+
       if (code === 0 || code === 130) return resolve({ outPath, aborted: false });
+
       reject(new Error(`arecord failed (code ${code}): ${stderr}`));
     });
   });
