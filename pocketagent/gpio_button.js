@@ -10,7 +10,9 @@ export function startButtonWatcher({
   gpioChip = process.env.POCKETAGENT_GPIO_CHIP || 'gpiochip0',
   line = Number(process.env.POCKETAGENT_PTT_GPIO_LINE ?? 23),
   debounceMs = Number(process.env.POCKETAGENT_PTT_DEBOUNCE_MS ?? 60),
-  activeLow = (process.env.POCKETAGENT_PTT_ACTIVE_LOW ?? 'false').toLowerCase() === 'true'
+  // ULTRA++ button uses an external pull-up (per Raspiaudio guide), which typically means
+  // the line is HIGH when idle and goes LOW when pressed => activeLow=true.
+  activeLow = (process.env.POCKETAGENT_PTT_ACTIVE_LOW ?? 'true').toLowerCase() === 'true'
 } = {}) {
   const args = [
     '-n', // numeric timestamps (easier to parse but we only use ordering)

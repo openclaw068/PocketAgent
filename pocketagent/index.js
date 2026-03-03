@@ -83,16 +83,23 @@ function parseDue(timeText) {
 }
 
 async function say(text) {
-  const wav = await ttsToWav({
-    baseUrl,
-    apiKeyEnv,
-    model: DEFAULTS.ttsModel,
-    voice: DEFAULTS.ttsVoice,
-    text
-  });
-  const out = path.join(DATA_DIR, 'tts.wav');
-  fs.writeFileSync(out, wav);
-  await playWav({ wavPath: out, cmd: DEFAULTS.playbackCommand, device: DEFAULTS.playbackDevice });
+  // Never let TTS/audio failures crash the whole loop.
+  try {
+    const wav = await ttsToWav({
+      baseUrl,
+      apiKeyEnv,
+      model: DEFAULTS.ttsModel,
+      voice: DEFAULTS.ttsVoice,
+      text
+    });
+    const out = path.join(DATA_DIR, 'tts.wav');
+    fs.writeFileSync(out, wav);
+    await playWav({ wavPath: out, cmd: DEFAULTS.playbackCommand, device: DEFAULTS.playbackDevice });
+  } catch (e) {
+    console.error('say() failed:', e?.message ?? e);
+    // Fallback: log the prompt so the system stays usable even if quota is exhausted.
+    console.log('SAY:', text);
+  }
 }
 
 async function listenForAck({ secondsMax = 5 }) {
@@ -104,7 +111,15 @@ async function listenForAck({ secondsMax = 5 }) {
       device: DEFAULTS.recordingDevice,
       secondsMax
     });
-    const text = await whisperTranscribe({ baseUrl, apiKeyEnv, audioPath: wavPath, model: DEFAULTS.whisperModel });
+    const text = await whisperTranscribe({
+      baseUrl,
+      apiKeyEnv,
+      audioPath: wavPath,
+      model: DEFAULTS.whisperModel,
+      prompt: process.env.POCKETAGENT_WHISPER_PROMPT || null,
+      language: process.env.POCKETAGENT_WHISPER_LANGUAGE || null,
+      responseFormat: process.env.POCKETAGENT_WHISPER_RESPONSE_FORMAT || 'json'
+    });
     return (text || '').trim();
   } catch {
     return '';
@@ -139,9 +154,37 @@ engine.start(async (r, meta) => notify(r, meta));
 async function oneTurn({ abortSignal = null } = {}) {
   const wavPath = path.join(DATA_DIR, 'input.wav');
   await say('Hold the button and speak.');
-  await recordToWav({ outPath: wavPath, sampleRateHertz: DEFAULTS.sampleRateHertz, device: DEFAULTS.recordingDevice, secondsMax: 8, abortSignal });
 
-  const text = await whisperTranscribe({ baseUrl, apiKeyEnv, audioPath: wavPath, model: DEFAULTS.whisperModel });
+  const rec = await recordToWav({
+    outPath: wavPath,
+    sampleRateHertz: DEFAULTS.sampleRateHertz,
+    device: DEFAULTS.recordingDevice,
+    secondsMax: 8,
+    abortSignal
+  });
+
+  // If the user released immediately, arecord exits (often code 130) and we may have
+  // no file. Avoid crashing on ENOENT.
+  if (rec?.aborted && !fs.existsSync(wavPath)) {
+    console.log('Recording aborted before audio was written; ignoring.');
+    return;
+  }
+
+  if (!fs.existsSync(wavPath)) {
+    console.error('Missing recorded audio file:', wavPath);
+    await say('I did not capture any audio. Try holding the button a bit longer.');
+    return;
+  }
+
+  const text = await whisperTranscribe({
+    baseUrl,
+    apiKeyEnv,
+    audioPath: wavPath,
+    model: DEFAULTS.whisperModel,
+    prompt: process.env.POCKETAGENT_WHISPER_PROMPT || null,
+    language: process.env.POCKETAGENT_WHISPER_LANGUAGE || null,
+    responseFormat: process.env.POCKETAGENT_WHISPER_RESPONSE_FORMAT || 'json'
+  });
   console.log('Heard:', text);
 
   const result = await handleUtterance({ baseUrl, apiKeyEnv, model: DEFAULTS.chatModel, text, state: runtime.state });
@@ -226,6 +269,29 @@ async function safeOneTurn(abortSignal = null) {
   }
 }
 
+function logConfig() {
+  const sttModel = DEFAULTS.whisperModel;
+  const chatModel = DEFAULTS.chatModel;
+  const ttsModel = DEFAULTS.ttsModel;
+  console.log('[PocketAgent] mode:', PTT_MODE);
+  console.log('[PocketAgent] models:', { stt: sttModel, chat: chatModel, tts: ttsModel, voice: DEFAULTS.ttsVoice });
+  console.log('[PocketAgent] audio:', {
+    sampleRateHertz: DEFAULTS.sampleRateHertz,
+    recordingDevice: DEFAULTS.recordingDevice,
+    playbackCommand: DEFAULTS.playbackCommand,
+    playbackDevice: DEFAULTS.playbackDevice
+  });
+  if (PTT_MODE !== 'stdin') {
+    console.log('[PocketAgent] gpio:', {
+      chip: process.env.POCKETAGENT_GPIO_CHIP || 'gpiochip0',
+      line: Number(process.env.POCKETAGENT_PTT_GPIO_LINE ?? 23),
+      activeLow: (process.env.POCKETAGENT_PTT_ACTIVE_LOW ?? 'true')
+    });
+  }
+}
+
+logConfig();
+
 if (PTT_MODE === 'stdin') {
   // Dev mode: press ENTER to simulate a button press.
   console.log('PocketAgent running. Press ENTER to simulate hold-to-talk.');
@@ -246,8 +312,11 @@ if (PTT_MODE === 'stdin') {
       controller = new AbortController();
       // Start recording immediately; stop when release aborts.
       void safeOneTurn(controller.signal).finally(() => {
-        inTurn = false;
-        controller = null;
+        // Small cooldown reduces edge-chatter / accidental immediate retriggers
+        setTimeout(() => {
+          inTurn = false;
+          controller = null;
+        }, Number(process.env.POCKETAGENT_PTT_COOLDOWN_MS ?? 200));
       });
     })
     .onRelease(() => {
