@@ -45,6 +45,12 @@ export class ReminderEngine {
       dueAtIso: reminder.dueAtIso,
       createdAtIso: new Date().toISOString(),
       status: 'open',
+
+      // recurrence (v2)
+      isRecurring: reminder.isRecurring ?? false,
+      rrule: reminder.rrule ?? null,
+      timezone: reminder.timezone ?? null,
+
       // follow-up policy
       followupEveryMin: reminder.followupEveryMin ?? null,
       followupMaxCount: reminder.followupMaxCount ?? null,
@@ -62,6 +68,20 @@ export class ReminderEngine {
   acknowledge(id) {
     const r = this.state.reminders.find(x => x.id === id);
     if (!r) return null;
+
+    // For recurring reminders, we treat acknowledgement as completing this occurrence.
+    // The daemon/main process should update dueAtIso to the next occurrence.
+    // (We keep status open here so it remains active.)
+    if (r.isRecurring) {
+      r.acknowledgedAtIso = new Date().toISOString();
+      r.lastNotifiedAtIso = null;
+      r.followupCount = 0;
+      this.save();
+      this._cancel(id);
+      this._cancelFollowup(id);
+      return r;
+    }
+
     r.status = 'done';
     r.acknowledgedAtIso = new Date().toISOString();
     this.save();

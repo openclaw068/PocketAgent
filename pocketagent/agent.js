@@ -90,17 +90,38 @@ export async function handleUtterance({ baseUrl, apiKeyEnv, model, text, state }
   }
 
   // Pending: confirm follow-up policy for a reminder
+  if (state.pending?.kind === 'confirm_ack') {
+    if (/\b(yes|yep|yeah|correct|sounds right|ok|okay)\b/i.test(t)) {
+      const { ackId } = state.pending;
+      return {
+        intent: 'ack_by_id',
+        id: ackId,
+        say: `Done — I’ll mark it complete.`,
+        state: { ...state, pending: null }
+      };
+    }
+    if (/\b(no|nope|cancel|stop|never mind)\b/i.test(t)) {
+      return {
+        intent: 'clarify',
+        say: `Okay — which reminder do you mean?`,
+        state: { ...state, pending: null }
+      };
+    }
+    return { intent: 'clarify', say: `Just say yes to confirm, or no to cancel.`, state };
+  }
+
   if (state.pending?.kind === 'confirm_followup') {
     if (/\b(yes|yep|yeah|correct|sounds right|ok|okay)\b/i.test(t)) {
-      const { reminderText, timeText, followupSpec } = state.pending;
+      const { reminderText, timeText, followupSpec, recurrence } = state.pending;
       return {
         intent: 'set_followup',
         followupSpec,
+        recurrence: recurrence ?? null,
         say: `Perfect.`,
         state: {
           ...state,
           pending: null,
-          collected: { reminderText, timeText, followupSpec }
+          collected: { reminderText, timeText, followupSpec, recurrence: recurrence ?? null }
         }
       };
     }

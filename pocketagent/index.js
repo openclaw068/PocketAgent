@@ -12,6 +12,7 @@ import { loadJson, saveJson } from './store.js';
 import { answerReminderQuery, selectRemindersForQuery } from './query.js';
 import { setVolumePercent } from './volume.js';
 import { startButtonWatcher } from './gpio_button.js';
+import { bestReminderMatch } from './match.js';
 
 const DATA_DIR = process.env.POCKETAGENT_DATA_DIR || './data';
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -438,6 +439,14 @@ async function oneTurn({ abortSignal = null } = {}) {
   // In chat mode, route with the LLM (natural language) and execute local reminder actions.
   // Fall back to open-ended chat only when the router says it's general chat.
   if (DEFAULTS.mode === 'chat') {
+    // If we are mid-flow (e.g., confirming which reminder to complete),
+    // prioritize the deterministic state machine so plain "yes/no" works.
+    if (runtime.state?.pending?.kind) {
+      const r0 = await handleUtterance({ baseUrl, apiKeyEnv, model: DEFAULTS.chatModel, text, state: runtime.state });
+      runtime.state = r0.state ?? runtime.state;
+      runtime.state._routedIntent = r0;
+    }
+
     // 1) LLM router (broad NL understanding)
     const routed = await routeUtterance({
       baseUrl,
@@ -449,6 +458,24 @@ async function oneTurn({ abortSignal = null } = {}) {
 
     // 2) Translate router output into the existing reminders state machine where helpful
     // (keeps time/follow-up confirmation flows intact).
+    // If the deterministic state machine already produced an intent (e.g., confirm_ack -> ack_by_id),
+    // run it and skip routing.
+    if (runtime.state?._routedIntent?.intent && runtime.state._routedIntent.intent !== 'unknown' && runtime.state._routedIntent.intent !== 'out_of_scope') {
+      const r1 = runtime.state._routedIntent;
+      runtime.state._routedIntent = null;
+
+      if (r1.intent === 'ack_by_id' && r1.id) {
+        await remindersPost('/reminders/ack', { id: r1.id });
+        await say(r1.say || 'Done.');
+        return;
+      }
+
+      if (r1.say) {
+        await say(r1.say);
+        return;
+      }
+    }
+
     if (routed?.intent === 'create_reminder') {
       // Kick off the existing reminder creation flow.
       // If timeText was provided, we can skip ask_time and go straight to followup collection.
@@ -470,13 +497,48 @@ async function oneTurn({ abortSignal = null } = {}) {
       // fall through by setting a variable
       runtime.state._routedIntent = r1;
     } else if (routed?.intent === 'ack_reminder') {
-      // If user indicates completion, ack latest by default.
+      // If user indicates completion, ack latest when we have recent context.
+      if (routed.ackTarget === 'latest') {
+        const id = runtime.state.lastNotifiedReminderId;
+        if (id) {
+          await remindersPost('/reminders/ack', { id });
+          await say('Nice — I’ll mark that as done.');
+        } else {
+          await say('Okay — which reminder do you mean?');
+        }
+        return;
+      }
+
+      // Ack by fuzzy match (by text), then confirm yes/no.
+      if (routed.ackTarget === 'by_text' && routed.ackText) {
+        const open = await remindersGet('/reminders/open');
+        const reminders = open?.json?.reminders || [];
+        const { best, bestScore } = bestReminderMatch({ reminders, queryText: routed.ackText });
+
+        if (!best) {
+          await say("I couldn't find a matching reminder. What should I mark complete?");
+          return;
+        }
+
+        // If confidence is low, ask for clarification rather than guessing.
+        if (bestScore < 25) {
+          await say('I found a few reminders, but I’m not sure which one you mean. Can you say a bit more?');
+          return;
+        }
+
+        // Set pending confirmation so a plain "yes" completes it.
+        runtime.state.pending = { kind: 'confirm_ack', ackId: best.id };
+        await say(`Do you mean: ${best.text}?`);
+        return;
+      }
+
+      // Default ack behavior
       const id = runtime.state.lastNotifiedReminderId;
       if (id) {
         await remindersPost('/reminders/ack', { id });
         await say('Nice — I’ll mark that as done.');
       } else {
-        await say("Okay — which reminder do you mean?");
+        await say('Okay — which reminder do you mean?');
       }
       return;
     } else if (routed?.intent === 'set_volume' && routed.volumePercent != null) {
@@ -528,6 +590,13 @@ async function oneTurn({ abortSignal = null } = {}) {
         if (r1.say) {
           await say(r1.say);
         }
+        return;
+      }
+
+      // Ack explicit reminder id (from confirm_ack pending flow)
+      if (r1.intent === 'ack_by_id' && r1.id) {
+        await remindersPost('/reminders/ack', { id: r1.id });
+        if (r1.say) await say(r1.say);
         return;
       }
 

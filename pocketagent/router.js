@@ -17,6 +17,13 @@ export async function routeUtterance({ baseUrl, apiKeyEnv, model, text, hasLastN
     // create_reminder
     reminderText: 'string|null',
     timeText: 'string|null',
+    // recurrence (optional)
+    recurrence: {
+      kind: 'none|rrule',
+      // RFC5545 RRULE, e.g. FREQ=WEEKLY;BYDAY=TU;INTERVAL=2
+      rrule: 'string|null',
+      timezone: 'string|null'
+    },
     // query_reminders
     queryText: 'string|null',
     // ack_reminder
@@ -36,6 +43,8 @@ export async function routeUtterance({ baseUrl, apiKeyEnv, model, text, hasLastN
     'For acknowledgements: if user indicates completion (done/complete/finished) and there is a recent reminder context, choose intent="ack_reminder" with ackTarget="latest". ' +
     'If the user says to complete a specific reminder by description, choose ackTarget="by_text" and set ackText to the short description (e.g., "trash"). ' +
     'For creating reminders, extract reminderText and timeText in the user\'s words (timeText should be a short phrase like "7am" or "tomorrow 7am"). ' +
+    'If the user asks for a repeating reminder (e.g. "every other Tuesday", "weekends", "every day"), set recurrence.kind="rrule" and provide an RFC5545 RRULE string (no DTSTART) plus timezone (usually America/Chicago unless user says otherwise). ' +
+    'If it is not repeating, set recurrence.kind="none". ' +
     'If time is missing for creation, still choose create_reminder and leave timeText=null.';
 
   const user = {
