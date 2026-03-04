@@ -134,6 +134,25 @@ sudo systemctl start pocketagent
 sudo journalctl -u pocketagent -f
 ```
 
+## AirPlay volume (phone-controlled) + fixed assistant volume
+If you use **Shairport Sync** for AirPlay, you may run into this failure mode:
+- You lower AirPlay volume from your phone
+- It silently lowers the ALSA hardware mixer (e.g. `Playback`)
+- After AirPlay ends, PocketAgent becomes **quiet**
+
+The fix is:
+- Shairport Sync uses **software volume** (phone controls AirPlay loudness)
+- Shairport Sync does **not** write to the ALSA hardware mixer
+- Remove any post-play hooks (or systemd `ExecStartPre`) that reset volume
+
+### Apply the known-good fix
+From the repo root:
+```bash
+sudo ./scripts/apply-audio-airplay-fix.sh
+```
+
+Details: see `docs/audio-airplay-volume.md`.
+
 ### Recommended baseline (known-good on Pi Zero 2 W + ULTRA++ / WM8960)
 Put these in `/etc/default/pocketagent` (ONE per line):
 ```bash
