@@ -258,7 +258,7 @@ export async function handleUtterance({ baseUrl, apiKeyEnv, model, text, state }
   // Reminder queries
   // Avoid triggering on standalone words like "tomorrow" inside reminder creation utterances.
   const wantsList = /\b(list reminders|my reminders|show reminders)\b/i.test(t);
-  const wantsComingUp = /\b(what do i have|what\s*'?s coming up|whats coming up|coming up)\b/i.test(t);
+  const wantsComingUp = /\b(what do i have|what\s*'?s coming up|whats coming up|coming up|do i have (any )?reminders|any reminders|what reminders do i have)\b/i.test(t);
   const mentionsDayWord = /\b(today|tomorrow|yesterday)\b/i.test(t);
   const hasQueryVerb = /\b(what|show|list|coming up|do i have)\b/i.test(t);
 
