@@ -213,7 +213,8 @@ export async function handleUtterance({ baseUrl, apiKeyEnv, model, text, state }
   }
 
   // If user says they completed something
-  if (/\b(done|did it|completed|yes i did|yeah i did|yep i did)\b/i.test(t)) {
+  // Support common natural phrases like “mark that reminder as complete”.
+  if (/\b(done|did it|complete|completed|mark (it|that) as complete|mark (it|that) complete|yes i did|yeah i did|yep i did)\b/i.test(t)) {
     return { intent: 'ack_latest', say: `Nice — I’ll mark that as done.`, state };
   }
 
